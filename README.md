@@ -32,7 +32,7 @@ Connect to your VM via SSH and execute the following:
 
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/your-username/krafty-server-setup/main/startup-clean.sh
+curl -O https://raw.githubusercontent.com/KraftyUX/avmss/main/startup-clean.sh
 chmod +x startup-clean.sh
 
 # Run with your configuration
