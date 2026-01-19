@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.5 (With Nginx Conflict Fix)
+# Version: 1.0.6 (Better Certbot Discovery)
 # Script: Automated KRAFTY Environment Setup (Optimized)
 # Author: KRAFTY
 # Description: Professional Nginx setup with Brotli, Certbot, Node.js, Git, and Secure FTP.
@@ -280,13 +280,12 @@ compile_brotli_module() {
 
 # --- Configure Nginx ---
 configure_nginx() {
-    if [ -f /etc/nginx/nginx.conf.bak ]; then
-        log "Nginx already configured. Skipping."
-        return
+    # Check if config already exists - but we overwrite to ensure server_name matches current run
+    log "Configuring Nginx with Brotli and HTTPS readiness for $DOMAIN..."
+    
+    if [ ! -f /etc/nginx/nginx.conf.bak ]; then
+        sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
-
-    log "Configuring Nginx with Brotli and HTTPS readiness..."
-    sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
 
     sudo bash -c "cat > /etc/nginx/nginx.conf" << EOF
 user www-data;
@@ -324,10 +323,15 @@ http {
 }
 EOF
 
-    sudo bash -c "cat > /etc/nginx/conf.d/default.conf" << EOF
+    # Create domain-specific config to help Certbot discover it
+    log "Creating Nginx server block for $DOMAIN..."
+    # Remove default.conf if it exists to avoid conflicts
+    sudo rm -f /etc/nginx/conf.d/default.conf
+    
+    sudo bash -c "cat > /etc/nginx/conf.d/$DOMAIN.conf" << EOF
 server {
     listen 80;
-    server_name $DOMAIN;
+    server_name $DOMAIN www.$DOMAIN;
 
     location / {
         root $DEPLOY_DIR/dist;
@@ -343,6 +347,9 @@ server {
     }
 }
 EOF
+
+    # Verify and reload Nginx
+    sudo nginx -t && sudo systemctl restart nginx || log "WARNING: Nginx reload failed during configuration."
 }
 
 # --- SSL Setup ---
