@@ -2,6 +2,9 @@
 
 ![Gen AI](https://img.shields.io/badge/Gen_AI-Powered-blue)
 ![Gemini 3](https://img.shields.io/badge/Gemini_3-Optimized-orange)
+![VM](https://img.shields.io/badge/VM-Optimized-blue)
+![Debian 12](https://img.shields.io/badge/Debian_12-Compatible-red)
+![Automation](https://img.shields.io/badge/Automation-Full-green)
 
 A professional-grade, automated setup script to transform a fresh Debian Bookworm VM into a secure, high-performance web server. Optimized for serving modern React/Vite landing pages with Nginx, Brotli compression, and automated SSL.
 
