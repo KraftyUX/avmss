@@ -23,6 +23,8 @@ usage() {
     echo "  --email EMAIL          (Required) Email for Certbot SSL"
     echo "  --ftp-user USERNAME    (Optional) FTP username (default: $FTP_USERNAME)"
     echo "  --ftp-pass PASSWORD    (Required) FTP password"
+    echo "  --git-user USERNAME    (Optional) GitHub username"
+    echo "  --git-token TOKEN      (Optional) GitHub Personal Access Token"
     exit 1
 }
 
@@ -34,6 +36,8 @@ while [[ "$#" -gt 0 ]]; do
         --email) EMAIL="$2"; shift ;;
         --ftp-user) FTP_USERNAME="$2"; shift ;;
         --ftp-pass) FTP_PASSWORD="$2"; shift ;;
+        --git-user) GIT_USER="$2"; shift ;;
+        --git-token) GIT_TOKEN="$2"; shift ;;
         *) echo "Unknown parameter: $1"; usage ;;
     esac
     shift
@@ -199,21 +203,43 @@ install_nginx() {
     fi
 
     log "Installing Nginx from official repository..."
+    log "Adding Nginx signing key..."
     curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+    log "Adding Nginx repository to sources list..."
     echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/debian $(lsb_release -cs) nginx" | sudo tee /etc/apt/sources.list.d/nginx.list
+    log "Running apt-get update..."
     sudo apt-get update -y
-    sudo apt-get install -y nginx || error_exit "Failed to install Nginx."
+    log "Running apt-get install nginx..."
+    # Adding force-confold to prevent interactive prompts for config files
+    sudo apt-get install -y -o Dpkg::Options::="--force-confold" nginx || error_exit "Failed to install Nginx."
+    log "Nginx installation command finished."
 }
 
 # --- Clone and Compile Brotli Module ---
 compile_brotli_module() {
     # Detect Nginx version
-    NGINX_VER=$(nginx -v 2>&1 | grep -oP 'nginx/\K[0-9.]+')
+    log "Checking Nginx version..."
+    
+    log "Path to nginx: $(which nginx)"
+    log "Nginx binary permissions: $(ls -l $(which nginx))"
+
+    # Debug: Try to get raw output with a timeout
+    log "Executing 'nginx -v' with 10s timeout..."
+    if ! RAW_NGINX_V=$(timeout 10s nginx -v 2>&1); then
+        log "WARNING: 'nginx -v' timed out or failed. Attempting to get version from package manager instead."
+        RAW_NGINX_V=$(dpkg -s nginx | grep Version)
+    fi
+    log "Raw Nginx version output: $RAW_NGINX_V"
+    
+    # Extract version (supports both nginx -v output and dpkg output)
+    NGINX_VER=$(echo "$RAW_NGINX_V" | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
     log "Detected Nginx version: $NGINX_VER"
 
+    if [[ -z "$NGINX_VER" ]]; then
+        error_exit "Could not detect Nginx version from output: $RAW_NGINX_V"
+    fi
+
     if [ -f "$NGINX_MODULES_DIR/ngx_http_brotli_filter_module.so" ]; then
-        # Even if file exists, verify compatibility if possible or allow re-compile if version changed
-        # For simplicity, we stick to existence check but could add version check here
         log "Brotli modules already exist. Skipping compilation."
         return
     fi
@@ -225,16 +251,22 @@ compile_brotli_module() {
     # Cleanup previous builds
     rm -rf ngx_brotli nginx-"$NGINX_VER"*
 
+    log "Cloning ngx_brotli repository (recursive)..."
     git clone --recursive https://github.com/google/ngx_brotli.git || error_exit "Failed to clone ngx_brotli."
     
+    log "Downloading Nginx source version $NGINX_VER..."
     wget "http://nginx.org/download/nginx-$NGINX_VER.tar.gz" || error_exit "Failed to download Nginx source."
+    log "Extracting Nginx source..."
     tar -xzvf "nginx-$NGINX_VER.tar.gz" > /dev/null
     cd "nginx-$NGINX_VER" || error_exit "Failed to navigate to Nginx source."
 
+    log "Configuring Brotli module build..."
     # Configure with same parameters as installed nginx + compatibility
     ./configure --with-compat --add-dynamic-module=../ngx_brotli || error_exit "Failed to configure Nginx module."
+    log "Starting compilation of modules (make modules)..."
     make modules || error_exit "Failed to compile Brotli modules."
 
+    log "Moving compiled modules to $NGINX_MODULES_DIR..."
     sudo mkdir -p "$NGINX_MODULES_DIR"
     sudo cp objs/ngx_http_brotli_filter_module.so "$NGINX_MODULES_DIR"
     sudo cp objs/ngx_http_brotli_static_module.so "$NGINX_MODULES_DIR"
@@ -338,22 +370,54 @@ install_nodejs() {
 # --- Web Deployment & Build ---
 deploy_webapp() {
     log "Deploying web application from $GITHUB_REPO_URL..."
+    
+    local auth_url="$GITHUB_REPO_URL"
+    
+    # If git credentials provided, inject them into the URL
+    if [[ -n "$GIT_USER" && -n "$GIT_TOKEN" ]]; then
+        log "Using provided GitHub credentials for authentication..."
+        # Remove https:// prefix if exists to inject credentials
+        local base_url="${GITHUB_REPO_URL#https://}"
+        auth_url="https://${GIT_USER}:${GIT_TOKEN}@${base_url}"
+    elif [[ "$GITHUB_REPO_URL" == git@github.com:* ]]; then
+        log "SSH URL detected. Ensuring github.com is in known_hosts..."
+        mkdir -p ~/.ssh
+        ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
+    fi
+
     sudo mkdir -p "$DEPLOY_DIR"
     sudo chown "$USER:$USER" "$DEPLOY_DIR"
     
     if [ ! -d "$DEPLOY_DIR/.git" ]; then
-        git clone "$GITHUB_REPO_URL" "$DEPLOY_DIR" || error_exit "Failed to clone repository."
+        log "Cloning repository..."
+        # If we have credentials, we use GIT_TERMINAL_PROMPT=0 to ensure it fails fast on bad creds
+        # If no credentials, we allow prompting (which might hang if not in a real TTY)
+        if [[ -n "$GIT_TOKEN" ]]; then
+            GIT_TERMINAL_PROMPT=0 git clone "$auth_url" "$DEPLOY_DIR" || error_exit "Failed to clone repository. Check your GitHub token."
+        else
+            log "WARNING: No GitHub credentials provided. The script may hang waiting for a prompt if the repo is private."
+            git clone "$auth_url" "$DEPLOY_DIR" || error_exit "Failed to clone repository."
+        fi
     else
         log "Repository already exists. Updating..."
-        cd "$DEPLOY_DIR" && git pull origin main
+        cd "$DEPLOY_DIR"
+        if [[ -n "$GIT_TOKEN" ]]; then
+            # Update remote URL to include token if needed
+            git remote set-url origin "$auth_url"
+            GIT_TERMINAL_PROMPT=0 git pull origin main || log "Git pull failed."
+        else
+            git pull origin main || log "Git pull failed."
+        fi
     fi
 
     cd "$DEPLOY_DIR"
     # Only install if node_modules missing or package.json changed
     if [ ! -d "node_modules" ]; then
+        log "Running npm install..."
         npm install || error_exit "npm install failed."
     fi
     
+    log "Running npm build..."
     npm run build || error_exit "npm build failed."
     
     # Optimization: remove cache after build
@@ -452,17 +516,29 @@ finalize_setup() {
 
 # --- Main Execution ---
 main() {
+    log "Step 1: Optimizing VM..."
     optimize_vm
+    log "Step 2: Installing dependencies..."
     install_dependencies
+    log "Step 3: Configuring firewall..."
     configure_firewall
+    log "Step 4: Installing Nginx..."
     install_nginx
+    log "Step 5: Compiling Brotli module..."
     compile_brotli_module
+    log "Step 6: Configuring Nginx..."
     configure_nginx
+    log "Step 7: Installing Node.js..."
     install_nodejs
+    log "Step 8: Deploying webapp..."
     deploy_webapp
+    log "Step 9: Configuring Git hooks..."
     configure_git_hooks
+    log "Step 10: Setting up SSL..."
     setup_ssl
+    log "Step 11: Configuring FTP..."
     configure_ftp
+    log "Step 12: Finalizing setup..."
     finalize_setup
 }
 
