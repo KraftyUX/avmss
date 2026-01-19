@@ -139,11 +139,14 @@ install_dependencies() {
 # --- Firewall Setup ---
 configure_firewall() {
     log "Configuring UFW firewall..."
+    sudo ufw --force reset
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
     sudo ufw allow 22/tcp
     sudo ufw allow 80/tcp
     sudo ufw allow 443/tcp
     sudo ufw allow 21/tcp
-    sudo ufw allow "$FTP_PASS_RANGE/tcp"
+    sudo ufw allow 40000:40100/tcp
     sudo ufw --force enable || error_exit "Failed to enable UFW."
 }
 
