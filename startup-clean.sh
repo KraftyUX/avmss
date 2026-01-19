@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Version: 1.0.4 (With Build Fallback)
+# Version: 1.0.5 (With Nginx Conflict Fix)
 # Script: Automated KRAFTY Environment Setup (Optimized)
 # Author: KRAFTY
 # Description: Professional Nginx setup with Brotli, Certbot, Node.js, Git, and Secure FTP.
@@ -352,8 +352,26 @@ setup_ssl() {
         return
     fi
 
-    log "Obtaining SSL certificate via Certbot..."
-    sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect || log "Certbot failed, will retry later or requires manual DNS."
+    log "Preparing for SSL setup. Cleaning up potential Nginx port conflicts..."
+    # Force kill any nginx processes that might be hanging or improperly started
+    sudo pkill -9 nginx || true
+    # Ensure Nginx is started via systemd before certbot runs
+    sudo systemctl start nginx || true
+    # Brief pause for initialization
+    sleep 2
+
+    log "Obtaining SSL certificate via Certbot for $DOMAIN..."
+    # Using --nginx plugin, but providing extra timeout/retry logic if needed
+    if ! sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect; then
+        log "WARNING: Certbot failed with Nginx plugin. Trying standalone mode as fallback (requires stopping Nginx)..."
+        sudo systemctl stop nginx || true
+        if sudo certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL"; then
+             log "Standalone SSL certificate obtained. You will need to manually configure Nginx SSL blocks or run the script again."
+        else
+             log "CRITICAL: Both Certbot methods failed. Check DNS propagation and port 80/443 availability."
+        fi
+        sudo systemctl start nginx || true
+    fi
 }
 
 # --- Install Node.js and Tooling ---
