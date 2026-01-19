@@ -393,7 +393,7 @@ deploy_webapp() {
         # If we have credentials, we use GIT_TERMINAL_PROMPT=0 to ensure it fails fast on bad creds
         # If no credentials, we allow prompting (which might hang if not in a real TTY)
         if [[ -n "$GIT_TOKEN" ]]; then
-            GIT_TERMINAL_PROMPT=0 git clone "$auth_url" "$DEPLOY_DIR" || error_exit "Failed to clone repository. Check your GitHub token."
+            GIT_TERMINAL_PROMPT=0 git clone "$auth_url" "$DEPLOY_DIR" || error_exit "Failed to clone repository. \nIMPORTANT: GitHub now requires a 'Personal Access Token' (Classic) with 'repo' scope, NOT your account password. \nPlease verify your token at: https://github.com/settings/tokens"
         else
             log "WARNING: No GitHub credentials provided. The script may hang waiting for a prompt if the repo is private."
             git clone "$auth_url" "$DEPLOY_DIR" || error_exit "Failed to clone repository."
