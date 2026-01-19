@@ -1,35 +1,68 @@
-# KRAFTY Automated Landing Page Setup
+# KRAFTY Automated VM Server Setup
 
-Automated environment setup script for high-performance React landing pages on Google Cloud Platform (Debian Bookworm).
+A professional-grade, automated setup script to transform a fresh Debian Bookworm VM into a secure, high-performance web server. Optimized for serving modern React/Vite landing pages with Nginx, Brotli compression, and automated SSL.
 
 ## Features
 
-- **Nginx & Brotli**: Dynamic compilation of Brotli modules for Nginx.
-- **SSL/TLS**: Automated Let's Encrypt certificates via Certbot.
-- **VM Optimization**: 2GB Swap, tuned Sysctl, and Fail2Ban hardening.
-- **Security**: UFW configuration, VSFTPD with forced SSL.
-- **Deployment**: Node.js 20, Git-based deployment with Vite build optimization.
+- **High Performance**: 2GB Swap file, tuned Sysctl network stack, and dynamic Brotli compression.
+- **Hardened Security**: 
+  - `Fail2Ban` for SSH/FTP brute-force protection.
+  - `UFW` firewall restricted to essential ports.
+  - `Unattended-upgrades` for automatic security patches.
+  - Forced SSL/TLS for all connections (HTTPS and FTPS).
+- **Automated SSL**: Integrated Certbot for Let's Encrypt certificates.
+- **Modern Stack**: Node.js 20, Nginx (Official Repo), and Git-driven deployment.
+- **Resource Aware**: Aggressive cleanup of build artifacts and source code to stay within 10GB disk limits.
 
-## Usage
+## 🚀 Getting Started
+
+### 1. Provision Your VM
+- OS: **Debian 12 (Bookworm)**
+- Suggested Specs: 2 vCPU, 8GB RAM, 10GB Disk (GCP e2-standard-2 or similar).
+- Network: Ensure HTTP (80) and HTTPS (443) are allowed in your cloud provider's firewall.
+
+### 2. Run the Setup Script
+Connect to your VM via SSH and execute the following:
 
 ```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/your-username/krafty-server-setup/main/startup-clean.sh
+chmod +x startup-clean.sh
+
+# Run with your configuration
 sudo ./startup-clean.sh \
   --domain yourdomain.com \
-  --repo https://github.com/user/repo.git \
+  --repo https://github.com/your-user/your-landing-page.git \
   --email admin@yourdomain.com \
-  --ftp-pass "secure-password"
+  --ftp-pass "your-secure-ftp-password"
 ```
 
-## Configuration Options
+### 3. Verification
+Once the script completes, your landing page will be live at `https://yourdomain.com`.
+- **Logs**: Check `/var/log/krafty_setup.log` for setup details.
+- **Health Check**: Run `sudo systemctl status nginx fail2ban vsftpd` to ensure all services are active.
 
-| Option | Description | Mandatory |
-|---|---|---|
-| `--domain` | The target FQDN for the landing page | Yes |
-| `--repo` | GitHub repository URL | Yes |
-| `--email` | Contact email for Certbot SSL | Yes |
-| `--ftp-pass` | Password for the secure FTP user | Yes |
-| `--ftp-user` | Custom FTP username (default: kraftyftp) | No |
+## 🛠️ Connection & Management
+
+### Secure FTP (FTPS)
+To manage files remotely from your desktop:
+- **Host**: Your VM IP or Domain
+- **Protocol**: FTP over Explicit TLS/SSL
+- **User**: `kraftyftp` (or your custom user)
+- **Password**: The password you provided during setup
+- **Port**: 21
+
+### SSH
+The server is configured for standard SSH access. For enhanced security, it is recommended to use SSH keys:
+```bash
+ssh -i /path/to/your/key user@your-domain.com
+```
+
+### Redeploying Your Site
+The setup includes a helper command to redeploy your landing page whenever you push changes to your GitHub repository:
+```bash
+sudo redeploy-landing-page
+```
 
 ## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License. See [LICENSE](LICENSE) for more information.
