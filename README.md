@@ -16,16 +16,17 @@ A professional-grade, automated setup script to transform a fresh Debian Bookwor
   - `UFW` firewall restricted to essential ports.
   - `Unattended-upgrades` for automatic security patches.
   - Forced SSL/TLS for all connections (HTTPS and FTPS).
-- **Automated SSL**: Integrated Certbot for Let's Encrypt certificates.
+- **Automated SSL**: Integrated Certbot for Let's Encrypt certificates with built-in port conflict resolution and fallback modes.
 - **Modern Stack**: Node.js 20, Nginx (Official Repo), and Git-driven deployment.
+- **Build Resilience**: Automated fallback for TypeScript/Linting errors during the build process to ensure deployment success.
 - **Resource Aware**: Aggressive cleanup of build artifacts and source code to stay within 10GB disk limits.
 
 ## 🚀 Getting Started
 
-### 1. Provision Your VM
-- OS: **Debian 12 (Bookworm)**
-- Suggested Specs: 2 vCPU, 8GB RAM, 10GB Disk (GCP e2-standard-2 or similar).
-- Network: Ensure HTTP (80) and HTTPS (443) are allowed in your cloud provider's firewall.
+### 1. Prerequisites
+- **DNS Setup**: Point your domain's **A Record** to your VM's External IP before running the script.
+- **GitHub Token**: If your repository is private, generate a [Personal Access Token (Classic)](https://github.com/settings/tokens) with `repo` scope.
+- **VM Specs**: Debian 12 (Bookworm), 2 vCPU, 8GB RAM, 10GB Disk.
 
 ### 2. Run the Setup Script
 Connect to your VM via SSH and execute the following:
@@ -40,7 +41,9 @@ sudo ./startup-clean.sh \
   --domain yourdomain.com \
   --repo https://github.com/your-user/your-landing-page.git \
   --email admin@yourdomain.com \
-  --ftp-pass "your-secure-ftp-password"
+  --ftp-pass "your-secure-ftp-password" \
+  --git-user "your-github-username" \
+  --git-token "your-personal-access-token"
 ```
 
 ### 3. Verification
@@ -54,24 +57,18 @@ Once the script completes, your landing page will be live at `https://yourdomain
 To manage files remotely from your desktop:
 - **Host**: Your VM IP or Domain
 - **Protocol**: FTP over Explicit TLS/SSL
-- **User**: `kraftyftp` (or your custom user)
+- **User**: `kraftyftp`
 - **Password**: The password you provided during setup
 - **Port**: 21
 
-### SSH
-The server is configured for standard SSH access. For enhanced security, it is recommended to use SSH keys:
-```bash
-ssh -i /path/to/your/key user@your-domain.com
-```
-
 ### Redeploying Your Site
-The setup includes a helper command to redeploy your landing page whenever you push changes to your GitHub repository:
+The setup includes a helper command to redeploy your landing page whenever you push changes to your GitHub repository. It includes automated fallback building if standard type-checks fail.
 ```bash
 sudo redeploy-landing-page
 ```
 
 ## 💎 Credits
-This project was built with the assistance of the **GEMINI 3 FLASH** model, which provided core code generation and optimization for the KRAFTY server environment.
+This project was built with the assistance of the **Kilo Code** technical lead and **GEMINI 3 FLASH**, providing optimized server architecture and automated error resolution.
 
 ## License
 MIT License. See [LICENSE](LICENSE) for more information.
