@@ -207,16 +207,18 @@ install_nginx() {
 
 # --- Clone and Compile Brotli Module ---
 compile_brotli_module() {
+    # Detect Nginx version
+    NGINX_VER=$(nginx -v 2>&1 | grep -oP 'nginx/\K[0-9.]+')
+    log "Detected Nginx version: $NGINX_VER"
+
     if [ -f "$NGINX_MODULES_DIR/ngx_http_brotli_filter_module.so" ]; then
+        # Even if file exists, verify compatibility if possible or allow re-compile if version changed
+        # For simplicity, we stick to existence check but could add version check here
         log "Brotli modules already exist. Skipping compilation."
         return
     fi
 
     log "Dynamically compiling Brotli module..."
-    
-    # Detect Nginx version
-    NGINX_VER=$(nginx -v 2>&1 | grep -oP 'nginx/\K[0-9.]+')
-    log "Detected Nginx version: $NGINX_VER"
 
     cd /tmp || error_exit "Failed to navigate to /tmp."
     
