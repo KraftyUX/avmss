@@ -77,11 +77,14 @@ optimize_vm() {
         sudo mkswap /swapfile
         sudo swapon /swapfile
         echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    else
+        log "Swap file already exists. Skipping."
     fi
 
     # 2. Sysctl Tuning
-    log "Applying sysctl network optimizations..."
-    sudo bash -c "cat > /etc/sysctl.d/99-krafty-optimize.conf" << EOF
+    if [ ! -f /etc/sysctl.d/99-krafty-optimize.conf ]; then
+        log "Applying sysctl network optimizations..."
+        sudo bash -c "cat > /etc/sysctl.d/99-krafty-optimize.conf" << EOF
 net.core.somaxconn = 1024
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.ip_local_port_range = 1024 65535
@@ -89,17 +92,25 @@ net.ipv4.tcp_max_syn_backlog = 2048
 net.ipv4.tcp_fin_timeout = 15
 vm.swappiness = 10
 EOF
-    sudo sysctl -p /etc/sysctl.d/99-krafty-optimize.conf
+        sudo sysctl -p /etc/sysctl.d/99-krafty-optimize.conf
+    else
+        log "Sysctl optimizations already applied. Skipping."
+    fi
 
     # 3. Auto-Updates (Security only)
-    log "Configuring unattended-upgrades..."
-    sudo apt-get install -y unattended-upgrades
-    sudo dpkg-reconfigure -plow unattended-upgrades
+    if ! dpkg -s unattended-upgrades &>/dev/null; then
+        log "Configuring unattended-upgrades..."
+        sudo apt-get install -y unattended-upgrades
+        sudo dpkg-reconfigure -plow unattended-upgrades
+    else
+        log "Unattended-upgrades already installed. Skipping."
+    fi
 
     # 4. Fail2Ban for SSH and VSFTPD
-    log "Installing and configuring Fail2Ban..."
-    sudo apt-get install -y fail2ban
-    sudo bash -c "cat > /etc/fail2ban/jail.local" << EOF
+    if ! dpkg -s fail2ban &>/dev/null; then
+        log "Installing and configuring Fail2Ban..."
+        sudo apt-get install -y fail2ban
+        sudo bash -c "cat > /etc/fail2ban/jail.local" << EOF
 [DEFAULT]
 bantime = 10m
 findtime = 10m
@@ -113,45 +124,80 @@ enabled = true
 port = ftp,ftp-data,ftps,ftps-data
 logpath = /var/log/vsftpd.log
 EOF
-    sudo systemctl restart fail2ban
+        sudo systemctl restart fail2ban
+    else
+        log "Fail2Ban already installed. Skipping."
+    fi
 
     # 5. Periodic Maintenance (Cron)
-    log "Adding weekly maintenance cron job..."
-    sudo bash -c "cat > /etc/cron.weekly/krafty-cleanup" << EOF
+    if [ ! -f /etc/cron.weekly/krafty-cleanup ]; then
+        log "Adding weekly maintenance cron job..."
+        sudo bash -c "cat > /etc/cron.weekly/krafty-cleanup" << EOF
 #!/bin/bash
 apt-get autoremove -y
 apt-get clean
 journalctl --vacuum-time=7d
 EOF
-    sudo chmod +x /etc/cron.weekly/krafty-cleanup
+        sudo chmod +x /etc/cron.weekly/krafty-cleanup
+    else
+        log "Maintenance cron job already exists. Skipping."
+    fi
 }
 
 # --- System Provisioning ---
 install_dependencies() {
     log "Optimizing system and installing dependencies..."
     export DEBIAN_FRONTEND=noninteractive
-    sudo apt-get update -y || error_exit "Failed to update package list."
-    sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev \
-        libssl-dev libbrotli-dev git curl gnupg2 ca-certificates lsb-release ufw \
-        certbot python3-certbot-nginx vsftpd || error_exit "Failed to install dependencies."
+    
+    # Check for core dependencies
+    local deps=(build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev libbrotli-dev git curl gnupg2 ca-certificates lsb-release ufw certbot python3-certbot-nginx vsftpd)
+    local to_install=()
+    
+    for dep in "${deps[@]}"; do
+        if ! dpkg -s "$dep" &>/dev/null; then
+            to_install+=("$dep")
+        fi
+    done
+
+    if [ ${#to_install[@]} -ne 0 ]; then
+        log "Installing missing dependencies: ${to_install[*]}"
+        sudo apt-get update -y
+        sudo apt-get install -y "${to_install[@]}" || error_exit "Failed to install dependencies."
+    else
+        log "All base dependencies are already installed."
+    fi
 }
 
 # --- Firewall Setup ---
 configure_firewall() {
     log "Configuring UFW firewall..."
-    sudo ufw --force reset
-    sudo ufw default deny incoming
-    sudo ufw default allow outgoing
-    sudo ufw allow 22/tcp
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-    sudo ufw allow 21/tcp
-    sudo ufw allow 40000:40100/tcp
-    sudo ufw --force enable || error_exit "Failed to enable UFW."
+    
+    if ! command -v ufw &>/dev/null; then
+        sudo apt-get install -y ufw
+    fi
+
+    if sudo ufw status | grep -q "Status: active"; then
+        log "UFW is already active. Checking rules..."
+    else
+        sudo ufw --force reset
+        sudo ufw default deny incoming
+        sudo ufw default allow outgoing
+        sudo ufw allow 22/tcp
+        sudo ufw allow 80/tcp
+        sudo ufw allow 443/tcp
+        sudo ufw allow 21/tcp
+        sudo ufw allow 40000:40100/tcp
+        sudo ufw --force enable || error_exit "Failed to enable UFW."
+    fi
 }
 
 # --- Install Nginx ---
 install_nginx() {
+    if command -v nginx &>/dev/null; then
+        log "Nginx is already installed. Skipping installation."
+        return
+    fi
+
     log "Installing Nginx from official repository..."
     curl -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
     echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/debian $(lsb_release -cs) nginx" | sudo tee /etc/apt/sources.list.d/nginx.list
@@ -161,6 +207,11 @@ install_nginx() {
 
 # --- Clone and Compile Brotli Module ---
 compile_brotli_module() {
+    if [ -f "$NGINX_MODULES_DIR/ngx_http_brotli_filter_module.so" ]; then
+        log "Brotli modules already exist. Skipping compilation."
+        return
+    fi
+
     log "Dynamically compiling Brotli module..."
     
     # Detect Nginx version
@@ -194,8 +245,14 @@ compile_brotli_module() {
 
 # --- Configure Nginx ---
 configure_nginx() {
+    if [ -f /etc/nginx/nginx.conf.bak ]; then
+        log "Nginx already configured. Skipping."
+        return
+    fi
+
     log "Configuring Nginx with Brotli and HTTPS readiness..."
-    
+    sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+
     sudo bash -c "cat > /etc/nginx/nginx.conf" << EOF
 user www-data;
 worker_processes auto;
@@ -255,12 +312,22 @@ EOF
 
 # --- SSL Setup ---
 setup_ssl() {
+    if sudo certbot certificates | grep -q "$DOMAIN"; then
+        log "SSL certificate for $DOMAIN already exists. Skipping."
+        return
+    fi
+
     log "Obtaining SSL certificate via Certbot..."
     sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect || log "Certbot failed, will retry later or requires manual DNS."
 }
 
 # --- Install Node.js and Tooling ---
 install_nodejs() {
+    if command -v node &>/dev/null; then
+        log "Node.js is already installed. Skipping."
+        return
+    fi
+
     log "Installing Node.js 20..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt-get install -y nodejs || error_exit "Failed to install Node.js."
@@ -275,24 +342,31 @@ deploy_webapp() {
     if [ ! -d "$DEPLOY_DIR/.git" ]; then
         git clone "$GITHUB_REPO_URL" "$DEPLOY_DIR" || error_exit "Failed to clone repository."
     else
+        log "Repository already exists. Updating..."
         cd "$DEPLOY_DIR" && git pull origin main
     fi
 
     cd "$DEPLOY_DIR"
-    npm install || error_exit "npm install failed."
+    # Only install if node_modules missing or package.json changed
+    if [ ! -d "node_modules" ]; then
+        npm install || error_exit "npm install failed."
+    fi
+    
     npm run build || error_exit "npm build failed."
     
-    # Optimization: remove cache and node_modules after build to save disk
+    # Optimization: remove cache after build
     npm cache clean --force
-    # sudo rm -rf node_modules # Optional: keep if needed for hooks
     log "Web application build complete."
 }
 
 # --- Configure Git Hooks ---
 configure_git_hooks() {
+    if [ -f /usr/local/bin/redeploy-landing-page ]; then
+        log "Deployment helper already exists. Skipping."
+        return
+    fi
+
     log "Configuring Git hooks for automation..."
-    # Create a bare repo for local push if needed, but since we pull from GitHub:
-    # We'll set up a simple script to trigger redeploy
     sudo bash -c "cat > /usr/local/bin/redeploy-landing-page" << EOF
 #!/bin/bash
 cd $DEPLOY_DIR
@@ -306,7 +380,13 @@ EOF
 
 # --- Configure VSFTPD (Secure FTP) ---
 configure_ftp() {
+    if [ -f /etc/vsftpd.conf.bak ]; then
+        log "FTP already configured. Skipping."
+        return
+    fi
+
     log "Configuring Secure FTP (VSFTPD)..."
+    sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
     
     # Create FTP user if not exists
     if ! id "$FTP_USERNAME" &>/dev/null; then
@@ -314,9 +394,6 @@ configure_ftp() {
         echo "$FTP_USERNAME:$FTP_PASSWORD" | sudo chpasswd
     fi
 
-    # SSL Cert for FTP (Reuse Snakeoil for now or Certbot if possible)
-    # For professional setup, we use the self-signed generated by vsftpd or certbot ones
-    
     sudo bash -c "cat > /etc/vsftpd.conf" << EOF
 listen=YES
 listen_ipv6=NO
