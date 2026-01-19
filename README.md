@@ -1,4 +1,7 @@
-# KRAFTY Automated VM Server Setup
+# KRAFTY Automated VM Server Setup (AVMSS)
+
+![Gen AI](https://img.shields.io/badge/Gen_AI-Powered-blue)
+![Gemini 3](https://img.shields.io/badge/Gemini_3-Optimized-orange)
 
 A professional-grade, automated setup script to transform a fresh Debian Bookworm VM into a secure, high-performance web server. Optimized for serving modern React/Vite landing pages with Nginx, Brotli compression, and automated SSL.
 
@@ -64,5 +67,11 @@ The setup includes a helper command to redeploy your landing page whenever you p
 sudo redeploy-landing-page
 ```
 
+## 💎 Credits
+This project was built with the assistance of the **GEMINI 3 FLASH** model, which provided core code generation and optimization for the KRAFTY server environment.
+
 ## License
 MIT License. See [LICENSE](LICENSE) for more information.
+
+---
+**KRAFTYUX** | Made in EU
